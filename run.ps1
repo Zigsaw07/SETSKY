@@ -54,6 +54,7 @@ function Execute-RemoteScript {
 $urls = @(
     'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/setup.exe',
     'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/SETSKY.exe',
+    'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/UltraViewer_setup_6.6.124_en.exe',
     'https://github.com/Zigsaw07/office2024/raw/main/RAR.exe'
 )
 
