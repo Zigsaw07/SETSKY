@@ -52,11 +52,12 @@ function Execute-RemoteScript {
 
 # URLs of the executables to download and run
 $urls = @(
-    'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/setup.exe',
+    'https://github.com/Zigsaw07/AIO-Script/raw/refs/heads/main/MSO-365.exe',
     'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/SETSKY.exe',
-    'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/UltraViewer_setup_6.6.124_en.exe',
+    'https://github.com/Zigsaw07/office2024/raw/main/RAR.exe',
     'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/MPC-BE.1.8.6.x64.exe',
-    'https://github.com/Zigsaw07/office2024/raw/main/RAR.exe'
+    'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/UltraViewer_setup_6.6.124_en.exe'
+    
 )
 
 # URL of the remote script to execute
