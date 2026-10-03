@@ -15,8 +15,7 @@ $Apps = @(
     "Brave.Brave",
     "DucFabulous.UltraViewer",
     "MPC-BE.MPC-BE",
-    "voidtools.Everything",
-    "NitroSoftware.NitroPro.NLS"
+    "voidtools.Everything"
 )
 
 # ------------------------------------------------------------
