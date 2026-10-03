@@ -57,7 +57,7 @@ $urls = @(
 )
 
 # URL of the remote script to execute
-$remoteScriptUrl = 'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/GARRY.ps1', 'https://get.activated.win'
+$remoteScriptUrl = 'https://get.activated.win'
 
 # Loop through each URL and execute the download and run function
 foreach ($url in $urls) {
