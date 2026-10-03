@@ -1,12 +1,11 @@
+#Requires -Version 5.1
+
 # ============================================================
 # Windows 10 / Windows 11 Application Installer
-#
-# Checks for WinGet.
-# If WinGet is missing, attempts to install Microsoft App
-# Installer, which provides WinGet.
 # ============================================================
 
 $ErrorActionPreference = "Continue"
+$ProgressPreference = "SilentlyContinue"
 
 $Apps = @(
     "Google.Chrome",
@@ -18,23 +17,16 @@ $Apps = @(
     "voidtools.Everything"
 )
 
-# ------------------------------------------------------------
-# Helper: Check whether WinGet exists
-# ------------------------------------------------------------
-
 function Test-WinGet {
-    $Winget = Get-Command "winget.exe" -ErrorAction SilentlyContinue
-
-    if ($Winget) {
-        return $true
-    }
-
-    return $false
+    return [bool](Get-Command "winget.exe" -ErrorAction SilentlyContinue)
 }
 
-# ------------------------------------------------------------
-# Header
-# ------------------------------------------------------------
+function Refresh-Path {
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath    = [Environment]::GetEnvironmentVariable("Path", "User")
+
+    $env:Path = "$machinePath;$userPath"
+}
 
 Clear-Host
 
@@ -50,129 +42,110 @@ Write-Host "Operating System: $($OS.Caption)"
 Write-Host "Version:          $($OS.Version)"
 Write-Host ""
 
-# ------------------------------------------------------------
+# ============================================================
 # Check WinGet
-# ------------------------------------------------------------
+# ============================================================
 
 Write-Host "Checking for WinGet..." -ForegroundColor Cyan
 
-if (Test-WinGet) {
-
-    Write-Host "WinGet is already installed." -ForegroundColor Green
-
-}
-else {
+if (-not (Test-WinGet)) {
 
     Write-Host "WinGet was not found." -ForegroundColor Yellow
+    Write-Host "Attempting to repair/install WinGet..." -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Attempting to install Microsoft App Installer..." -ForegroundColor Cyan
-    Write-Host ""
 
-    # --------------------------------------------------------
-    # Method 1: Microsoft Store / Winget package registration
-    # --------------------------------------------------------
+    try {
+        Write-Host "Installing NuGet package provider..." -ForegroundColor Cyan
 
-    $AppInstaller = Get-AppxPackage -Name "Microsoft.DesktopAppInstaller" `
-        -ErrorAction SilentlyContinue
+        Install-PackageProvider `
+            -Name NuGet `
+            -Force `
+            -ErrorAction Stop | Out-Null
 
-    if ($AppInstaller) {
+        Write-Host "Installing Microsoft.WinGet.Client..." -ForegroundColor Cyan
 
-        Write-Host "Microsoft App Installer is installed." -ForegroundColor Yellow
-        Write-Host "Attempting to register it..." -ForegroundColor Cyan
+        Install-Module `
+            -Name Microsoft.WinGet.Client `
+            -Repository PSGallery `
+            -Force `
+            -AllowClobber `
+            -ErrorAction Stop | Out-Null
 
-        try {
+        Write-Host "Repairing WinGet..." -ForegroundColor Cyan
 
-            Add-AppxPackage -Register `
-                "$($AppInstaller.InstallLocation)\AppxManifest.xml" `
-                -DisableDevelopmentMode `
-                -ErrorAction Stop
+        Repair-WinGetPackageManager -AllUsers
 
-        }
-        catch {
-
-            Write-Host "Could not register App Installer." -ForegroundColor Yellow
-        }
+        Write-Host "WinGet repair completed." -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Automatic WinGet repair failed." -ForegroundColor Yellow
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
     }
 
-    # --------------------------------------------------------
-    # Method 2: Install App Installer through Microsoft Store
-    # --------------------------------------------------------
+    # Refresh environment variables
+    Refresh-Path
 
+    Start-Sleep -Seconds 3
+
+    # Check again
     if (-not (Test-WinGet)) {
 
         Write-Host ""
-        Write-Host "Opening Microsoft Store App Installer page..." -ForegroundColor Cyan
+        Write-Host "WinGet is still unavailable." -ForegroundColor Yellow
+        Write-Host "Opening Microsoft Store App Installer..." -ForegroundColor Cyan
+        Write-Host ""
 
         try {
+            Start-Process "ms-windows-store://pdp/?productid=9NBLGGH4NNS1"
 
-            Start-Process `
-                "ms-windows-store://pdp/?productid=9NBLGGH4NNS1"
-
+            Write-Host "Install or update 'App Installer' from Microsoft Store."
             Write-Host ""
-            Write-Host "Please install/update 'App Installer' from the Microsoft Store." `
-                -ForegroundColor Yellow
 
-            Write-Host ""
-            Read-Host "Press Enter after App Installer has finished installing"
+            Read-Host "Press Enter after installation is complete"
 
+            Refresh-Path
+            Start-Sleep -Seconds 3
         }
         catch {
-
             Write-Host "Could not open Microsoft Store." -ForegroundColor Red
         }
     }
 
-    # --------------------------------------------------------
-    # Check again
-    # --------------------------------------------------------
-
-    Write-Host ""
-    Write-Host "Checking for WinGet again..." -ForegroundColor Cyan
-
-    # Refresh PATH for the current PowerShell session
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") +
-                ";" +
-                [System.Environment]::GetEnvironmentVariable("Path", "User")
-
-    Start-Sleep -Seconds 2
+    Refresh-Path
 
     if (-not (Test-WinGet)) {
 
         Write-Host ""
-        Write-Host "ERROR: WinGet is still not available." -ForegroundColor Red
+        Write-Host "ERROR: WinGet is still unavailable." -ForegroundColor Red
         Write-Host ""
         Write-Host "Install/update Microsoft App Installer and run this script again."
         Write-Host ""
 
+        Read-Host "Press Enter to exit"
         exit 1
     }
-
-    Write-Host "WinGet is now available." -ForegroundColor Green
 }
 
-# ------------------------------------------------------------
-# Display WinGet version
-# ------------------------------------------------------------
+# ============================================================
+# WinGet information
+# ============================================================
 
 Write-Host ""
+Write-Host "WinGet is available." -ForegroundColor Green
 
 try {
-
     $WingetVersion = winget --version
-
     Write-Host "WinGet version: $WingetVersion" -ForegroundColor Green
-
 }
 catch {
-
     Write-Host "Unable to determine WinGet version." -ForegroundColor Yellow
 }
 
 Write-Host ""
 
-# ------------------------------------------------------------
+# ============================================================
 # Update WinGet sources
-# ------------------------------------------------------------
+# ============================================================
 
 Write-Host "Updating WinGet sources..." -ForegroundColor Cyan
 
@@ -180,9 +153,9 @@ winget source update
 
 Write-Host ""
 
-# ------------------------------------------------------------
+# ============================================================
 # Install applications
-# ------------------------------------------------------------
+# ============================================================
 
 $Failed = @()
 
@@ -199,15 +172,16 @@ foreach ($App in $Apps) {
         --accept-package-agreements `
         --accept-source-agreements
 
-    if ($LASTEXITCODE -eq 0) {
+    $ExitCode = $LASTEXITCODE
+
+    if ($ExitCode -eq 0) {
 
         Write-Host "SUCCESS: $App" -ForegroundColor Green
-
     }
     else {
 
         Write-Host "FAILED: $App" -ForegroundColor Red
-        Write-Host "Exit code: $LASTEXITCODE" -ForegroundColor Red
+        Write-Host "Exit code: $ExitCode" -ForegroundColor Red
 
         $Failed += $App
     }
@@ -215,11 +189,10 @@ foreach ($App in $Apps) {
     Write-Host ""
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # Summary
-# ------------------------------------------------------------
+# ============================================================
 
-Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host " Installation Summary" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
@@ -232,7 +205,7 @@ if ($Failed.Count -eq 0) {
 }
 else {
 
-    Write-Host "Some applications failed to install:" -ForegroundColor Yellow
+    Write-Host "The following applications failed:" -ForegroundColor Yellow
     Write-Host ""
 
     foreach ($App in $Failed) {
@@ -240,8 +213,7 @@ else {
     }
 
     Write-Host ""
-    Write-Host "Run the script again to retry the failed applications." `
-        -ForegroundColor Yellow
+    Write-Host "Run the script again to retry them." -ForegroundColor Yellow
 }
 
 Write-Host ""
