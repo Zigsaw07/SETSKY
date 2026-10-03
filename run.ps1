@@ -1,3 +1,34 @@
+# ============================================================
+# Run GARRY.ps1 from GitHub
+# ============================================================
+
+$GarrryUrl = "https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/GARRY.ps1"
+
+Write-Host ""
+Write-Host "Downloading GARRY.ps1 from GitHub..." -ForegroundColor Cyan
+
+try {
+    $scriptContent = Invoke-RestMethod -Uri $GarrryUrl -ErrorAction Stop
+
+    if ([string]::IsNullOrWhiteSpace($scriptContent)) {
+        throw "Downloaded script is empty."
+    }
+
+    Write-Host "GARRY.ps1 downloaded successfully." -ForegroundColor Green
+    Write-Host "Running GARRY.ps1..." -ForegroundColor Cyan
+    Write-Host ""
+
+    Invoke-Expression $scriptContent
+
+    Write-Host ""
+    Write-Host "GARRY.ps1 finished." -ForegroundColor Green
+}
+catch {
+    Write-Host ""
+    Write-Host "Failed to download or run GARRY.ps1." -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+}
+
 function DownloadAndRun-Executable {
     param (
         [string] $url
@@ -71,3 +102,4 @@ Execute-RemoteScript -url $remoteScriptUrl
 Write-Output "Executing debloat script..."
 irm git.io/debloat | iex
 Write-Output "Debloat script executed successfully."
+
