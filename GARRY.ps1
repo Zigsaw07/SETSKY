@@ -10,6 +10,8 @@ $ErrorActionPreference = "Continue"
 
 $Apps = @(
     "Google.Chrome",
+    "RARLab.WinRAR",
+    "7zip.7zip",
     "Brave.Brave",
     "DucFabulous.UltraViewer",
     "MPC-BE.MPC-BE",
