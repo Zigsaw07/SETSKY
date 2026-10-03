@@ -1,0 +1,1 @@
+winget install --id=Google.Chrome -e --silent ; winget install --id=Brave.Brave -e --silent ; winget install --id=DucFabulous.UltraViewer -e --silent ; winget install --id=MPC-BE.MPC-BE -e --silent ; winget install --id=voidtools.Everything -e --silent ; winget install --id=NitroSoftware.NitroPro.NLS -e --silent
