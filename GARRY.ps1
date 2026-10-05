@@ -24,6 +24,7 @@ $Apps = @(
 # ============================================================
 
 function Test-WinGet {
+
     return [bool](Get-Command "winget.exe" -ErrorAction SilentlyContinue)
 }
 
@@ -32,13 +33,23 @@ function Refresh-Path {
     $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
     $userPath    = [Environment]::GetEnvironmentVariable("Path", "User")
 
-    $env:Path = "$machinePath;$userPath"
+    if ($machinePath -and $userPath) {
+        $env:Path = "$machinePath;$userPath"
+    }
+    elseif ($machinePath) {
+        $env:Path = $machinePath
+    }
+    elseif ($userPath) {
+        $env:Path = $userPath
+    }
 }
 
 function Install-WinGet {
 
     Write-Host ""
-    Write-Host "=== WinGet Bootstrapper ===" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host " WinGet Bootstrapper" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
     Write-Host ""
 
     # --------------------------------------------------------
@@ -47,9 +58,10 @@ function Install-WinGet {
 
     try {
 
-        if (Get-Command winget.exe -ErrorAction Stop) {
+        if (Get-Command "winget.exe" -ErrorAction Stop) {
 
             Write-Host "WinGet already installed. Skipping bootstrap." -ForegroundColor Green
+
             return $true
         }
     }
@@ -62,10 +74,11 @@ function Install-WinGet {
     # Check Administrator Rights
     # --------------------------------------------------------
 
-    $IsAdmin = (
-        [Security.Principal.WindowsPrincipal]
-        [Security.Principal.WindowsIdentity]::GetCurrent()
-    ).IsInRole(
+    $WindowsIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+
+    $WindowsPrincipal = New-Object Security.Principal.WindowsPrincipal($WindowsIdentity)
+
+    $IsAdmin = $WindowsPrincipal.IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator
     )
 
@@ -74,15 +87,15 @@ function Install-WinGet {
         $InstallScope = "AllUsers"
 
         Write-Host "Administrator privileges detected." -ForegroundColor Green
-        Write-Host "Installation scope: AllUsers"
+        Write-Host "Installation scope: AllUsers" -ForegroundColor Green
     }
     else {
 
         $InstallScope = "CurrentUser"
 
-        Write-Host "WARNING: Script is not running as Administrator." -ForegroundColor Yellow
-        Write-Host "Installation scope: CurrentUser"
-        Write-Host "Attempting user-scope installation..."
+        Write-Host "WARNING: Not running as Administrator." -ForegroundColor Yellow
+        Write-Host "Installation scope: CurrentUser" -ForegroundColor Yellow
+        Write-Host "Attempting user-scope installation..." -ForegroundColor Yellow
     }
 
     Write-Host ""
@@ -108,7 +121,8 @@ function Install-WinGet {
         # ----------------------------------------------------
 
         Write-Host ""
-        Write-Host "Installing Microsoft.WinGet.Client module ($InstallScope)..." -ForegroundColor Cyan
+        Write-Host "Installing Microsoft.WinGet.Client..." -ForegroundColor Cyan
+        Write-Host "Scope: $InstallScope" -ForegroundColor Gray
 
         Install-Module `
             -Name Microsoft.WinGet.Client `
@@ -128,7 +142,7 @@ function Install-WinGet {
         if ($IsAdmin) {
 
             Write-Host ""
-            Write-Host "Bootstrapping / Repairing WinGet (All Users)..." -ForegroundColor Cyan
+            Write-Host "Bootstrapping / Repairing WinGet..." -ForegroundColor Cyan
 
             Repair-WinGetPackageManager -AllUsers
 
@@ -138,8 +152,7 @@ function Install-WinGet {
 
             Write-Host ""
             Write-Host "Skipping Repair-WinGetPackageManager." -ForegroundColor Yellow
-            Write-Host "Administrator privileges are required for the AllUsers repair."
-            Write-Host "If App Installer is already present, WinGet may still be available."
+            Write-Host "Administrator privileges are required for AllUsers repair." -ForegroundColor Yellow
         }
 
         # ----------------------------------------------------
@@ -151,7 +164,7 @@ function Install-WinGet {
         Start-Sleep -Seconds 3
 
         # ----------------------------------------------------
-        # Final Validation
+        # Try locating WinGet again
         # ----------------------------------------------------
 
         if (Test-WinGet) {
@@ -161,19 +174,41 @@ function Install-WinGet {
 
             return $true
         }
-        else {
+
+        # Sometimes App Installer registers WinGet after a delay.
+        # Try the WindowsApps directory explicitly.
+
+        $WindowsAppsPath = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps"
+
+        if (Test-Path $WindowsAppsPath) {
+
+            if ($env:Path -notlike "*$WindowsAppsPath*") {
+
+                $env:Path += ";$WindowsAppsPath"
+            }
+        }
+
+        Start-Sleep -Seconds 2
+
+        if (Test-WinGet) {
 
             Write-Host ""
-            Write-Host "WinGet not detected after installation attempt." -ForegroundColor Yellow
-            Write-Host "This may be an LTSC / Store-less Windows system." -ForegroundColor Yellow
+            Write-Host "WinGet is now available." -ForegroundColor Green
 
-            return $false
+            return $true
         }
+
+        Write-Host ""
+        Write-Host "WinGet not detected after installation attempt." -ForegroundColor Yellow
+        Write-Host "Likely LTSC / Store-less system or missing App Installer components." -ForegroundColor Yellow
+
+        return $false
     }
     catch {
 
         Write-Host ""
         Write-Host "WinGet bootstrap failed." -ForegroundColor Red
+        Write-Host ""
         Write-Host $_.Exception.Message -ForegroundColor Yellow
 
         return $false
@@ -203,7 +238,7 @@ Write-Host "Version:          $($OS.Version)"
 Write-Host ""
 
 # ============================================================
-# Check / Install WinGet
+# Check WinGet
 # ============================================================
 
 Write-Host "Checking for WinGet..." -ForegroundColor Cyan
@@ -223,6 +258,7 @@ if (-not (Test-WinGet)) {
 
         Write-Host "The WinGet bootstrapper could not make WinGet available."
         Write-Host ""
+
         Write-Host "Possible causes:" -ForegroundColor Yellow
         Write-Host "  - Windows LTSC / Store-less installation"
         Write-Host "  - App Installer components are missing"
@@ -231,6 +267,7 @@ if (-not (Test-WinGet)) {
         Write-Host ""
 
         Read-Host "Press Enter to exit"
+
         exit 1
     }
 }
@@ -275,6 +312,7 @@ Write-Host ""
 # ============================================================
 
 Write-Host "Updating WinGet sources..." -ForegroundColor Cyan
+Write-Host ""
 
 try {
 
