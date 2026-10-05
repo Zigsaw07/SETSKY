@@ -32,7 +32,7 @@ function Refresh-Path {
     $env:Path = ""
 
     if ($machinePath) {
-        $env:Path += $machinePath
+        $env:Path = $machinePath
     }
 
     if ($userPath) {
@@ -44,7 +44,6 @@ function Refresh-Path {
         $env:Path += $userPath
     }
 
-    # WindowsApps
     $WindowsApps = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps"
 
     if (Test-Path $WindowsApps) {
@@ -59,14 +58,20 @@ function Get-WinGetPath {
 
     Refresh-Path
 
-    # First try PATH
+    # --------------------------------------------------------
+    # Check PATH
+    # --------------------------------------------------------
+
     $Command = Get-Command "winget.exe" -ErrorAction SilentlyContinue
 
     if ($Command) {
         return $Command.Source
     }
 
-    # Check standard WindowsApps location
+    # --------------------------------------------------------
+    # Check WindowsApps
+    # --------------------------------------------------------
+
     $WindowsApps = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps"
 
     $Winget = Join-Path $WindowsApps "winget.exe"
@@ -75,46 +80,32 @@ function Get-WinGetPath {
         return $Winget
     }
 
-    # Check WindowsApps package installation locations
-    $PackageLocations = @(
-        "$env:LOCALAPPDATA\Microsoft\WindowsApps",
-        "$env:ProgramFiles\WindowsApps"
-    )
+    # --------------------------------------------------------
+    # Search WindowsApps package directory
+    # --------------------------------------------------------
 
-    foreach ($Location in $PackageLocations) {
+    $PackagePath = "$env:ProgramFiles\WindowsApps"
 
-        if (Test-Path $Location) {
+    if (Test-Path $PackagePath) {
 
-            try {
+        try {
 
-                $Found = Get-ChildItem `
-                    -Path $Location `
-                    -Filter "winget.exe" `
-                    -Recurse `
-                    -ErrorAction SilentlyContinue |
-                    Select-Object -First 1
+            $Found = Get-ChildItem `
+                -Path $PackagePath `
+                -Filter "winget.exe" `
+                -Recurse `
+                -ErrorAction SilentlyContinue |
+                Select-Object -First 1
 
-                if ($Found) {
-                    return $Found.FullName
-                }
+            if ($Found) {
+                return $Found.FullName
             }
-            catch {
-            }
+        }
+        catch {
         }
     }
 
     return $null
-}
-
-function Test-WinGet {
-
-    $WingetPath = Get-WinGetPath
-
-    if ($WingetPath) {
-        return $true
-    }
-
-    return $false
 }
 
 function Install-WinGet {
@@ -126,7 +117,7 @@ function Install-WinGet {
     Write-Host ""
 
     # --------------------------------------------------------
-    # Check if WinGet already exists
+    # Check existing WinGet
     # --------------------------------------------------------
 
     $ExistingWinGet = Get-WinGetPath
@@ -144,7 +135,7 @@ function Install-WinGet {
     Write-Host ""
 
     # --------------------------------------------------------
-    # Administrator check
+    # Administrator Check
     # --------------------------------------------------------
 
     $CurrentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -178,7 +169,7 @@ function Install-WinGet {
         # NuGet
         # ----------------------------------------------------
 
-        Write-Host "Installing / checking NuGet Package Provider..." -ForegroundColor Cyan
+        Write-Host "Ensuring NuGet Package Provider..." -ForegroundColor Cyan
 
         Install-PackageProvider `
             -Name NuGet `
@@ -213,7 +204,7 @@ function Install-WinGet {
         if ($IsAdmin) {
 
             Write-Host ""
-            Write-Host "Bootstrapping WinGet..." -ForegroundColor Cyan
+            Write-Host "Bootstrapping / repairing WinGet..." -ForegroundColor Cyan
 
             Repair-WinGetPackageManager -AllUsers
 
@@ -222,7 +213,7 @@ function Install-WinGet {
         else {
 
             Write-Host ""
-            Write-Host "Skipping AllUsers WinGet repair because Administrator privileges are required." -ForegroundColor Yellow
+            Write-Host "Skipping AllUsers repair because Administrator privileges are required." -ForegroundColor Yellow
         }
 
     }
@@ -234,7 +225,7 @@ function Install-WinGet {
     }
 
     # --------------------------------------------------------
-    # Refresh PATH
+    # Refresh environment
     # --------------------------------------------------------
 
     Write-Host ""
@@ -260,13 +251,13 @@ function Install-WinGet {
     }
 
     Write-Host ""
-    Write-Host "WinGet was installed but could not be located automatically." -ForegroundColor Yellow
+    Write-Host "WinGet could not be located after installation." -ForegroundColor Yellow
 
     return $null
 }
 
 # ============================================================
-# Start
+# START
 # ============================================================
 
 Clear-Host
@@ -278,7 +269,7 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
 # ============================================================
-# OS Information
+# Operating System Information
 # ============================================================
 
 $OS = Get-CimInstance Win32_OperatingSystem
@@ -288,7 +279,7 @@ Write-Host "Version:          $($OS.Version)"
 Write-Host ""
 
 # ============================================================
-# WinGet
+# Check / Install WinGet
 # ============================================================
 
 Write-Host "Checking for WinGet..." -ForegroundColor Cyan
@@ -318,16 +309,17 @@ if (-not $WingetPath) {
 
     Write-Host ""
     Write-Host "============================================" -ForegroundColor Red
-    Write-Host " ERROR: WinGet could not be located" -ForegroundColor Red
+    Write-Host " ERROR: WinGet unavailable" -ForegroundColor Red
     Write-Host "============================================" -ForegroundColor Red
     Write-Host ""
 
-    Write-Host "WinGet bootstrap completed, but winget.exe is not accessible." -ForegroundColor Yellow
+    Write-Host "WinGet bootstrap completed, but winget.exe could not be located." -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Possible causes:" -ForegroundColor Yellow
-    Write-Host "  - App Installer registration is still processing"
     Write-Host "  - Windows LTSC / Store-less installation"
-    Write-Host "  - WinGet package installation failed"
+    Write-Host "  - App Installer components are missing"
+    Write-Host "  - WinGet registration is incomplete"
+    Write-Host "  - Administrator privileges are required"
     Write-Host ""
 
     Read-Host "Press Enter to exit"
@@ -336,7 +328,7 @@ if (-not $WingetPath) {
 }
 
 # ============================================================
-# Add WinGet directory to PATH
+# Add WinGet Directory to PATH
 # ============================================================
 
 $WingetDirectory = Split-Path $WingetPath -Parent
@@ -368,30 +360,13 @@ catch {
 }
 
 # ============================================================
-# Update Sources
-# ============================================================
-
-Write-Host ""
-Write-Host "Updating WinGet sources..." -ForegroundColor Cyan
-Write-Host ""
-
-try {
-
-    & $WingetPath source update
-}
-catch {
-
-    Write-Host "Unable to update WinGet sources." -ForegroundColor Yellow
-}
-
-Write-Host ""
-
-# ============================================================
 # Install Applications
 # ============================================================
 
+Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host " Installing Applications" -ForegroundColor Cyan
+Write-Host " Source: winget" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -406,6 +381,7 @@ foreach ($App in $Apps) {
     & $WingetPath install `
         --id $App `
         --exact `
+        --source winget `
         --silent `
         --accept-package-agreements `
         --accept-source-agreements
@@ -428,7 +404,7 @@ foreach ($App in $Apps) {
 }
 
 # ============================================================
-# Summary
+# Installation Summary
 # ============================================================
 
 Write-Host ""
@@ -452,7 +428,7 @@ else {
     }
 
     Write-Host ""
-    Write-Host "Run the script again to retry them." -ForegroundColor Yellow
+    Write-Host "Run the script again to retry the failed applications." -ForegroundColor Yellow
 }
 
 Write-Host ""
