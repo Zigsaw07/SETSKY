@@ -1,9 +1,8 @@
-
 #Requires -Version 5.1
 
 # ============================================================
 # Windows 10 / Windows 11 Application Installer
-# WinGet Bootstrapper
+# WinGet Bootstrapper - Fixed Version
 # PowerShell 5.1 Compatible
 # ============================================================
 
@@ -36,18 +35,15 @@ function Refresh-Path {
     }
 
     if ($userPath) {
-
         if ($env:Path) {
             $env:Path += ";"
         }
-
         $env:Path += $userPath
     }
 
     $WindowsApps = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps"
 
     if (Test-Path $WindowsApps) {
-
         if ($env:Path -notlike "*$WindowsApps*") {
             $env:Path += ";$WindowsApps"
         }
@@ -58,38 +54,26 @@ function Get-WinGetPath {
 
     Refresh-Path
 
-    # --------------------------------------------------------
-    # Check PATH
-    # --------------------------------------------------------
-
+    # Check normal PATH resolution
     $Command = Get-Command "winget.exe" -ErrorAction SilentlyContinue
 
     if ($Command) {
         return $Command.Source
     }
 
-    # --------------------------------------------------------
-    # Check WindowsApps
-    # --------------------------------------------------------
-
+    # Check WindowsApps alias directory
     $WindowsApps = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps"
-
     $Winget = Join-Path $WindowsApps "winget.exe"
 
     if (Test-Path $Winget) {
         return $Winget
     }
 
-    # --------------------------------------------------------
-    # Search WindowsApps package directory
-    # --------------------------------------------------------
-
+    # Check App Installer package installation directory
     $PackagePath = "$env:ProgramFiles\WindowsApps"
 
     if (Test-Path $PackagePath) {
-
         try {
-
             $Found = Get-ChildItem `
                 -Path $PackagePath `
                 -Filter "winget.exe" `
@@ -106,6 +90,52 @@ function Get-WinGetPath {
     }
 
     return $null
+}
+
+function Test-WindowsVersion {
+
+    $OS = Get-CimInstance Win32_OperatingSystem
+
+    Write-Host "Operating System: $($OS.Caption)"
+    Write-Host "Version:          $($OS.Version)"
+    Write-Host "Build:            $($OS.BuildNumber)"
+    Write-Host ""
+
+    # WinGet requires Windows 10 build 17763 / version 1809 or later.
+    if ([int]$OS.BuildNumber -lt 17763) {
+
+        Write-Host "ERROR: This Windows version is too old for WinGet." -ForegroundColor Red
+        Write-Host "WinGet requires Windows 10 build 17763 (version 1809) or newer." -ForegroundColor Yellow
+
+        return $false
+    }
+
+    return $true
+}
+
+function Register-AppInstaller {
+
+    Write-Host ""
+    Write-Host "Checking Microsoft App Installer registration..." -ForegroundColor Cyan
+
+    try {
+
+        # Microsoft recommends this registration command when WinGet
+        # is installed but has not been registered for the current user.
+        Add-AppxPackage `
+            -RegisterByFamilyName `
+            -MainPackage "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe" `
+            -ErrorAction Stop
+
+        Write-Host "App Installer registration requested successfully." -ForegroundColor Green
+        return $true
+    }
+    catch {
+
+        Write-Host "App Installer registration was not completed:" -ForegroundColor Yellow
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        return $false
+    }
 }
 
 function Install-WinGet {
@@ -131,7 +161,7 @@ function Install-WinGet {
     }
 
     Write-Host "WinGet not detected." -ForegroundColor Yellow
-    Write-Host "Proceeding with installation..." -ForegroundColor Cyan
+    Write-Host "Starting Microsoft-supported bootstrap process..." -ForegroundColor Cyan
     Write-Host ""
 
     # --------------------------------------------------------
@@ -147,28 +177,36 @@ function Install-WinGet {
     )
 
     if ($IsAdmin) {
-
-        $InstallScope = "AllUsers"
-
         Write-Host "Administrator privileges detected." -ForegroundColor Green
-        Write-Host "Installation scope: AllUsers" -ForegroundColor Green
     }
     else {
-
-        $InstallScope = "CurrentUser"
-
-        Write-Host "WARNING: Not running as Administrator." -ForegroundColor Yellow
-        Write-Host "Installation scope: CurrentUser" -ForegroundColor Yellow
+        Write-Host "WARNING: Script is not running as Administrator." -ForegroundColor Yellow
+        Write-Host "Some App Installer repairs may require elevation." -ForegroundColor Yellow
     }
 
-    Write-Host ""
-
     try {
+
+        # ----------------------------------------------------
+        # TLS 1.2 - important on older Windows 10 / PowerShell 5.1
+        # ----------------------------------------------------
+
+        Write-Host ""
+        Write-Host "Enabling TLS 1.2 for PowerShell Gallery..." -ForegroundColor Cyan
+
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = `
+                [Net.ServicePointManager]::SecurityProtocol -bor `
+                [Net.SecurityProtocolType]::Tls12
+        }
+        catch {
+            Write-Host "Could not modify TLS settings; continuing..." -ForegroundColor Yellow
+        }
 
         # ----------------------------------------------------
         # NuGet
         # ----------------------------------------------------
 
+        Write-Host ""
         Write-Host "Ensuring NuGet Package Provider..." -ForegroundColor Cyan
 
         Install-PackageProvider `
@@ -180,41 +218,55 @@ function Install-WinGet {
         Write-Host "NuGet ready." -ForegroundColor Green
 
         # ----------------------------------------------------
+        # PSGallery
+        # ----------------------------------------------------
+
+        try {
+            Set-PSRepository `
+                -Name PSGallery `
+                -InstallationPolicy Trusted `
+                -ErrorAction SilentlyContinue
+        }
+        catch {
+        }
+
+        # ----------------------------------------------------
         # Microsoft.WinGet.Client
         # ----------------------------------------------------
 
         Write-Host ""
         Write-Host "Installing Microsoft.WinGet.Client..." -ForegroundColor Cyan
 
+        # CurrentUser is intentional: the module does not need to be
+        # installed machine-wide just to run the WinGet repair cmdlet.
         Install-Module `
             -Name Microsoft.WinGet.Client `
             -Repository PSGallery `
             -Force `
             -Confirm:$false `
             -AllowClobber `
-            -Scope $InstallScope `
+            -Scope CurrentUser `
             -ErrorAction Stop | Out-Null
 
         Write-Host "Microsoft.WinGet.Client installed." -ForegroundColor Green
 
+        # Make sure the module is available in this session.
+        Import-Module Microsoft.WinGet.Client -Force -ErrorAction Stop
+
         # ----------------------------------------------------
-        # Bootstrap WinGet
+        # Microsoft-supported WinGet repair/bootstrap
         # ----------------------------------------------------
 
-        if ($IsAdmin) {
+        Write-Host ""
+        Write-Host "Bootstrapping / repairing WinGet..." -ForegroundColor Cyan
+        Write-Host "This may take a little while..." -ForegroundColor Gray
 
-            Write-Host ""
-            Write-Host "Bootstrapping / repairing WinGet..." -ForegroundColor Cyan
+        Repair-WinGetPackageManager `
+            -Force `
+            -Latest `
+            -ErrorAction Stop
 
-            Repair-WinGetPackageManager -AllUsers
-
-            Write-Host "WinGet bootstrap completed." -ForegroundColor Green
-        }
-        else {
-
-            Write-Host ""
-            Write-Host "Skipping AllUsers repair because Administrator privileges are required." -ForegroundColor Yellow
-        }
+        Write-Host "WinGet repair/bootstrap completed." -ForegroundColor Green
 
     }
     catch {
@@ -225,6 +277,12 @@ function Install-WinGet {
     }
 
     # --------------------------------------------------------
+    # Register App Installer for the current user
+    # --------------------------------------------------------
+
+    Register-AppInstaller
+
+    # --------------------------------------------------------
     # Refresh environment
     # --------------------------------------------------------
 
@@ -232,6 +290,30 @@ function Install-WinGet {
     Write-Host "Refreshing environment..." -ForegroundColor Cyan
 
     Refresh-Path
+
+    Start-Sleep -Seconds 5
+
+    # --------------------------------------------------------
+    # Try App Installer registration one more time
+    # --------------------------------------------------------
+
+    $AppInstaller = Get-AppxPackage `
+        -Name "Microsoft.DesktopAppInstaller" `
+        -ErrorAction SilentlyContinue
+
+    if ($AppInstaller) {
+
+        Write-Host ""
+        Write-Host "Microsoft App Installer detected." -ForegroundColor Green
+        Write-Host "Version: $($AppInstaller.Version)" -ForegroundColor Gray
+
+        Register-AppInstaller
+    }
+    else {
+
+        Write-Host ""
+        Write-Host "Microsoft App Installer package is still not visible." -ForegroundColor Yellow
+    }
 
     Start-Sleep -Seconds 5
 
@@ -251,7 +333,7 @@ function Install-WinGet {
     }
 
     Write-Host ""
-    Write-Host "WinGet could not be located after installation." -ForegroundColor Yellow
+    Write-Host "WinGet could not be located after bootstrap." -ForegroundColor Yellow
 
     return $null
 }
@@ -269,14 +351,15 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
 # ============================================================
-# Operating System Information
+# Operating System Check
 # ============================================================
 
-$OS = Get-CimInstance Win32_OperatingSystem
+if (-not (Test-WindowsVersion)) {
 
-Write-Host "Operating System: $($OS.Caption)"
-Write-Host "Version:          $($OS.Version)"
-Write-Host ""
+    Write-Host ""
+    Read-Host "Press Enter to exit"
+    exit 1
+}
 
 # ============================================================
 # Check / Install WinGet
@@ -288,18 +371,16 @@ Write-Host ""
 $WingetPath = Get-WinGetPath
 
 if (-not $WingetPath) {
-
     $WingetPath = Install-WinGet
 }
 
 # ------------------------------------------------------------
-# Final WinGet check
+# Final WinGet checks
 # ------------------------------------------------------------
 
 if (-not $WingetPath) {
 
     Refresh-Path
-
     Start-Sleep -Seconds 3
 
     $WingetPath = Get-WinGetPath
@@ -313,17 +394,23 @@ if (-not $WingetPath) {
     Write-Host "============================================" -ForegroundColor Red
     Write-Host ""
 
-    Write-Host "WinGet bootstrap completed, but winget.exe could not be located." -ForegroundColor Yellow
+    Write-Host "The WinGet bootstrap/repair process completed, but winget.exe" -ForegroundColor Yellow
+    Write-Host "could not be located for the current Windows user." -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Possible causes:" -ForegroundColor Yellow
-    Write-Host "  - Windows LTSC / Store-less installation"
-    Write-Host "  - App Installer components are missing"
-    Write-Host "  - WinGet registration is incomplete"
-    Write-Host "  - Administrator privileges are required"
+    Write-Host "  - Windows 10 is older than build 17763"
+    Write-Host "  - Microsoft App Installer is missing"
+    Write-Host "  - App Installer registration failed"
+    Write-Host "  - Windows Store/AppX components are damaged"
+    Write-Host "  - The script is running under SYSTEM instead of a normal user"
+    Write-Host "  - Windows security policy is blocking MSIX/AppX installation"
+    Write-Host ""
+    Write-Host "For diagnostics, check:" -ForegroundColor Yellow
+    Write-Host "  Event Viewer -> Applications and Services Logs ->"
+    Write-Host "  Microsoft -> Windows -> AppxDeployment-Server -> Operational"
     Write-Host ""
 
     Read-Host "Press Enter to exit"
-
     exit 1
 }
 
@@ -334,7 +421,6 @@ if (-not $WingetPath) {
 $WingetDirectory = Split-Path $WingetPath -Parent
 
 if ($env:Path -notlike "*$WingetDirectory*") {
-
     $env:Path += ";$WingetDirectory"
 }
 
@@ -352,11 +438,39 @@ try {
 
     $WingetVersion = & $WingetPath --version
 
-    Write-Host "WinGet version: $WingetVersion" -ForegroundColor Green
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "WinGet version: $WingetVersion" -ForegroundColor Green
+    }
+    else {
+        Write-Host "WinGet exists but did not return a normal version response." -ForegroundColor Yellow
+    }
 }
 catch {
 
     Write-Host "Unable to determine WinGet version." -ForegroundColor Yellow
+}
+
+# ============================================================
+# Initialize WinGet Sources
+# ============================================================
+
+Write-Host ""
+Write-Host "Refreshing WinGet sources..." -ForegroundColor Cyan
+
+try {
+
+    & $WingetPath source update --accept-source-agreements
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "WinGet sources updated." -ForegroundColor Green
+    }
+    else {
+        Write-Host "WinGet source update returned exit code $LASTEXITCODE." -ForegroundColor Yellow
+    }
+}
+catch {
+
+    Write-Host "Unable to update WinGet sources." -ForegroundColor Yellow
 }
 
 # ============================================================
@@ -423,7 +537,6 @@ else {
     Write-Host ""
 
     foreach ($App in $Failed) {
-
         Write-Host "  - $App" -ForegroundColor Red
     }
 
@@ -433,4 +546,3 @@ else {
 
 Write-Host ""
 Read-Host "Press Enter to exit"
-
