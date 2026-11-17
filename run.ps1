@@ -1,85 +1,286 @@
-$commands = @(
-    'irm win.msgang.com | iex'
-    'irm install.msgang.com | iex'
-    'irm https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/GARRY.ps1 | iex'
-)
+#Requires -Version 5.1
 
-foreach ($command in $commands) {
-    Write-Host "Running: $command" -ForegroundColor Cyan
-    Invoke-Expression $command
+# ============================================================
+# GARRY - Windows 10 / 11 Setup Launcher
+# PowerShell 5.1 Compatible
+#
+# IMPORTANT:
+# - The first three remote scripts are executed only once.
+# - Do NOT make GARRY.ps1 download/execute itself.
+# - Remote scripts are still trusted code: review them before use.
+# ============================================================
+
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+# TLS 1.2 for older Windows 10 / PowerShell 5.1
+try {
+    [Net.ServicePointManager]::SecurityProtocol = `
+        [Net.ServicePointManager]::SecurityProtocol -bor `
+        [Net.SecurityProtocolType]::Tls12
+}
+catch {
+    Write-Warning "Could not enable TLS 1.2."
+}
+
+# ============================================================
+# Helpers
+# ============================================================
+
+function Invoke-RemoteScript {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Url,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    try {
+        Write-Host ""
+        Write-Host "============================================" -ForegroundColor Cyan
+        Write-Host "Running: $Name" -ForegroundColor Cyan
+        Write-Host "URL: $Url" -ForegroundColor Gray
+        Write-Host "============================================" -ForegroundColor Cyan
+
+        $Response = Invoke-WebRequest `
+            -Uri $Url `
+            -UseBasicParsing `
+            -ErrorAction Stop
+
+        if ([string]::IsNullOrWhiteSpace($Response.Content)) {
+            throw "The remote server returned an empty response."
+        }
+
+        Write-Host "Downloaded successfully. Executing..." -ForegroundColor Yellow
+
+        # Execute the returned PowerShell source.
+        & ([scriptblock]::Create($Response.Content))
+
+        Write-Host "$Name completed." -ForegroundColor Green
+    }
+    catch {
+        Write-Host "$Name failed." -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        return $false
+    }
+
+    return $true
 }
 
 function DownloadAndRun-Executable {
     param (
-        [string] $url
+        [Parameter(Mandatory = $true)]
+        [string]$Url
     )
 
+    $TempFilePath = $null
+
     try {
-        # Create a temporary file path with the .exe extension
-        $tempFilePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName() + ".exe")
-        
-        Write-Output "Downloading executable from $url to $tempFilePath"
-        
-        # Download the executable from the provided URL
-        iwr $url -OutFile $tempFilePath -ErrorAction Stop
-        Write-Output "Download complete. Unblocking file."
+        $TempFilePath = Join-Path `
+            ([System.IO.Path]::GetTempPath()) `
+            (([System.IO.Path]::GetRandomFileName()) + ".exe")
 
-        # Unblock the downloaded file to prevent security warnings
-        Unblock-File -Path $tempFilePath -ErrorAction Stop
+        Write-Host ""
+        Write-Host "============================================" -ForegroundColor Cyan
+        Write-Host "Downloading executable" -ForegroundColor Cyan
+        Write-Host "URL: $Url" -ForegroundColor Gray
+        Write-Host "============================================" -ForegroundColor Cyan
 
-        Write-Output "Unblocked file. Running executable with admin privileges."
+        Invoke-WebRequest `
+            -Uri $Url `
+            -UseBasicParsing `
+            -OutFile $TempFilePath `
+            -ErrorAction Stop
 
-        # Run the executable with administrator rights
-        $process = Start-Process -FilePath $tempFilePath -Verb RunAs -PassThru -Wait
+        if (-not (Test-Path $TempFilePath)) {
+            throw "Downloaded file was not created."
+        }
 
-        # Log the exit code
-        Write-Output "Executable completed with exit code: $($process.ExitCode)"
+        $FileInfo = Get-Item $TempFilePath
 
-        # Clean up: Delete the temporary file after execution
-        Remove-Item -Path $tempFilePath -Force
-        Write-Output "Temporary file deleted."
+        if ($FileInfo.Length -le 0) {
+            throw "Downloaded file is empty."
+        }
+
+        Write-Host "Download complete." -ForegroundColor Green
+        Write-Host "Size: $($FileInfo.Length) bytes" -ForegroundColor Gray
+
+        try {
+            Unblock-File -Path $TempFilePath -ErrorAction SilentlyContinue
+        }
+        catch {
+            Write-Warning "Could not remove the downloaded-file security mark."
+        }
+
+        Write-Host "Requesting administrator privileges..." -ForegroundColor Yellow
+
+        $Process = Start-Process `
+            -FilePath $TempFilePath `
+            -Verb RunAs `
+            -PassThru `
+            -Wait
+
+        if ($Process.ExitCode -eq 0) {
+            Write-Host "Executable completed successfully." -ForegroundColor Green
+            return $true
+        }
+        else {
+            Write-Host "Executable returned exit code: $($Process.ExitCode)" -ForegroundColor Red
+            return $false
+        }
     }
     catch {
-        Write-Error "Failed to download or run executable from $url. Error: $_"
+        Write-Host "Failed to download or run executable." -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        return $false
+    }
+    finally {
+        if ($TempFilePath -and (Test-Path $TempFilePath)) {
+            Remove-Item `
+                -Path $TempFilePath `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
     }
 }
 
-function Execute-RemoteScript {
-    param (
-        [string] $url
-    )
+# ============================================================
+# START
+# ============================================================
 
-    try {
-        Write-Output "Executing remote script from $url using irm"
-        
-        # Fetch and execute the remote script using irm (Invoke-RestMethod)
-        irm $url | iex
-        Write-Output "Remote script executed successfully."
-    }
-    catch {
-        Write-Error "Failed to execute remote script from $url. Error: $_"
-    }
-}
+Clear-Host
 
-# URLs of the executables to download and run
-$urls = @(
-    
-    'https://github.com/Zigsaw07/office2024/raw/main/RAR.exe'    
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host " GARRY Windows Setup" -ForegroundColor Cyan
+Write-Host " Windows 10 / Windows 11" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+
+# ============================================================
+# Administrator Check
+# ============================================================
+
+$Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+
+$Principal = New-Object Security.Principal.WindowsPrincipal($Identity)
+
+$IsAdmin = $Principal.IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator
 )
 
-# URL of the remote script to execute
-$remoteScriptUrl = 'https://get.activated.win'
-
-# Loop through each URL and execute the download and run function
-foreach ($url in $urls) {
-    DownloadAndRun-Executable -url $url
+if (-not $IsAdmin) {
+    Write-Host "Administrator privileges are recommended." -ForegroundColor Yellow
+    Write-Host "Some installers will request elevation individually." -ForegroundColor Yellow
+}
+else {
+    Write-Host "Running as Administrator." -ForegroundColor Green
 }
 
-# Execute the remote script
-Execute-RemoteScript -url $remoteScriptUrl
+# ============================================================
+# Windows Information
+# ============================================================
 
-# Execute the debloat script
-Write-Output "Executing debloat script..."
-irm git.io/debloat | iex
-Write-Output "Debloat script executed successfully."
+try {
+    $OS = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
 
+    Write-Host ""
+    Write-Host "Operating System: $($OS.Caption)"
+    Write-Host "Version:          $($OS.Version)"
+    Write-Host "Build:            $($OS.BuildNumber)"
+}
+catch {
+    Write-Warning "Could not read Windows version information."
+}
+
+# ============================================================
+# Remote setup scripts
+#
+# IMPORTANT:
+# Do NOT include GARRY.ps1 itself here.
+# Otherwise GARRY.ps1 calls itself recursively.
+# ============================================================
+
+$RemoteScripts = @(
+    @{
+        Name = "MSGANG Windows Setup"
+        Url  = "https://win.msgang.com"
+    },
+    @{
+        Name = "MSGANG Installer"
+        Url  = "https://install.msgang.com"
+    }
+)
+
+foreach ($Script in $RemoteScripts) {
+    $Result = Invoke-RemoteScript `
+        -Url $Script.Url `
+        -Name $Script.Name
+
+    if (-not $Result) {
+        Write-Host ""
+        Write-Host "Remote script failed. Continuing with the remaining setup..." -ForegroundColor Yellow
+    }
+}
+
+# ============================================================
+# Download and run RAR.exe
+# ============================================================
+
+$ExecutableUrls = @(
+    "https://github.com/Zigsaw07/office2024/raw/main/RAR.exe"
+)
+
+foreach ($Url in $ExecutableUrls) {
+    DownloadAndRun-Executable -Url $Url | Out-Null
+}
+
+# ============================================================
+# Activation script
+#
+# This executes third-party remote code. Review the destination
+# before using it on production systems.
+# ============================================================
+
+$ActivationUrl = "https://get.activated.win"
+
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Yellow
+Write-Host "Remote activation script" -ForegroundColor Yellow
+Write-Host "============================================" -ForegroundColor Yellow
+Write-Host ""
+
+Invoke-RemoteScript `
+    -Url $ActivationUrl `
+    -Name "Remote activation script" | Out-Null
+
+# ============================================================
+# Debloat script
+#
+# The original script used git.io/debloat. That short URL may
+# redirect or stop working. Verify the destination before use.
+# ============================================================
+
+$DebloatUrl = "https://git.io/debloat"
+
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Yellow
+Write-Host "Remote debloat script" -ForegroundColor Yellow
+Write-Host "URL: $DebloatUrl" -ForegroundColor Gray
+Write-Host "============================================" -ForegroundColor Yellow
+
+Invoke-RemoteScript `
+    -Url $DebloatUrl `
+    -Name "Debloat script" | Out-Null
+
+# ============================================================
+# DONE
+# ============================================================
+
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Green
+Write-Host " Setup completed" -ForegroundColor Green
+Write-Host "============================================" -ForegroundColor Green
+Write-Host ""
+
+Read-Host "Press Enter to exit"
