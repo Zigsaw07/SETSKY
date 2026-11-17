@@ -210,6 +210,10 @@ $RemoteScripts = @(
         Name = "MSGANG Installer"
         Url  = "https://install.msgang.com"
     }
+     @{
+        Name = "WINGET Installer"
+        Url  = "https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/GARRY.ps1"
+    }
 )
 
 foreach ($Script in $RemoteScripts) {
