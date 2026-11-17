@@ -1,7 +1,7 @@
 $commands = @(
-    'irm win.msgang.com | iex',
-    'irm install.msgang.com | iex',
-    'irm https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/GARRY.ps1 | iex',
+    'irm win.msgang.com | iex'
+    'irm install.msgang.com | iex'
+    'irm https://github.com/Zigsaw07/SETSKY/raw/refs/heads/main/GARRY.ps1 | iex'
 )
 
 foreach ($command in $commands) {
